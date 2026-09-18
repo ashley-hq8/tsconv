@@ -1,0 +1,6 @@
+[package]
+name = "tsconv"
+version = "0.1.0"
+edition = "2021"
+description = "Convert timesheets between CSV and punch-log text formats"
+license = "MIT"

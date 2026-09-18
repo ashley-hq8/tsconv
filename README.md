@@ -1,0 +1,94 @@
+# tsconv
+
+Converts timesheets between two plain-text formats:
+
+- `csv` - what most payroll and invoicing tools export or import:
+  ```
+  date,employee,project,start,end
+  2026-09-15,ashley,website-redesign,09:00,17:30
+  ```
+- `punch` - a flat text format some people just type by hand into a log file:
+  ```
+  2026-09-15 ashley website-redesign 09:00-17:30
+  ```
+
+I keep my own hours in `punch` because it's fast to type, but the invoicing
+tool I bill through only takes `csv`. Every format in between (and there are
+a few) wants one or the other, so this is a small converter plus a report
+command for sanity-checking totals before they go anywhere.
+
+Note: `punch` has no quoting, so employee and project names in that format
+can't contain spaces (use `website-redesign`, not `website redesign`).
+Overnight shifts (end time past midnight) aren't supported yet - see the
+error message if you hit that.
+
+## Build
+
+```
+cargo build --release
+```
+
+No third-party crates, so this also works offline with just `rustc` if you
+don't want to pull in cargo's target machinery:
+
+```
+rustc src/main.rs -o tsconv
+```
+
+(that mode needs `timesheet.rs` and `report.rs` alongside `main.rs`, which
+is already how the repo is laid out)
+
+## Convert
+
+```
+$ cat week.csv
+date,employee,project,start,end
+2026-09-15,ashley,website-redesign,09:00,17:30
+2026-09-16,ashley,website-redesign,09:00,16:00
+
+$ tsconv convert --from csv --to punch --input week.csv
+2026-09-15 ashley website-redesign 09:00-17:30
+2026-09-16 ashley website-redesign 09:00-16:00
+```
+
+Write straight to a file instead of stdout with `--output`:
+
+```
+$ tsconv convert --from punch --to csv --input week.punch --output week.csv
+```
+
+## Report
+
+Totals per employee and per project, either as a human-readable summary:
+
+```
+$ tsconv report --input week.csv --format csv
+entries: 2
+total:   16h 30m
+
+by employee:
+  ashley               16h 30m
+
+by project:
+  website-redesign     16h 30m
+```
+
+or as JSON, for feeding into something else:
+
+```
+$ tsconv report --input week.csv --format csv --json
+{
+  "entry_count": 2,
+  "total_minutes": 990,
+  "by_employee": {
+    "ashley": 990
+  },
+  "by_project": {
+    "website-redesign": 990
+  }
+}
+```
+
+## License
+
+MIT, see [LICENSE](LICENSE).
