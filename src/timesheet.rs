@@ -19,9 +19,19 @@ pub struct Entry {
     pub end_minutes: u32,
 }
 
+const MINUTES_PER_DAY: u32 = 24 * 60;
+
 impl Entry {
+    // end <= start means the shift crossed midnight (the date on the entry
+    // is the start date; there's no separate end date to record). A shift
+    // can't last a full 24 hours or more, so end == start is rejected at
+    // parse time rather than treated as a full-day shift.
     pub fn duration_minutes(&self) -> u32 {
-        self.end_minutes - self.start_minutes
+        if self.end_minutes < self.start_minutes {
+            (self.end_minutes + MINUTES_PER_DAY) - self.start_minutes
+        } else {
+            self.end_minutes - self.start_minutes
+        }
     }
 }
 
@@ -50,9 +60,9 @@ pub fn parse_csv(contents: &str) -> Result<Vec<Entry>, String> {
             .map_err(|e| format!("csv line {}: start time - {}", line_no, e))?;
         let end = parse_time(fields[4])
             .map_err(|e| format!("csv line {}: end time - {}", line_no, e))?;
-        if end <= start {
+        if end == start {
             return Err(format!(
-                "csv line {}: end time must be after start time (overnight shifts aren't supported yet)",
+                "csv line {}: start and end time are the same",
                 line_no
             ));
         }
@@ -110,9 +120,9 @@ pub fn parse_punch(contents: &str) -> Result<Vec<Entry>, String> {
             .map_err(|e| format!("punch line {}: start time - {}", line_no, e))?;
         let end = parse_time(end_str)
             .map_err(|e| format!("punch line {}: end time - {}", line_no, e))?;
-        if end <= start {
+        if end == start {
             return Err(format!(
-                "punch line {}: end time must be after start time (overnight shifts aren't supported yet)",
+                "punch line {}: start and end time are the same",
                 line_no
             ));
         }

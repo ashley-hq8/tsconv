@@ -19,8 +19,12 @@ command for sanity-checking totals before they go anywhere.
 
 Note: `punch` has no quoting, so employee and project names in that format
 can't contain spaces (use `website-redesign`, not `website redesign`).
-Overnight shifts (end time past midnight) aren't supported yet - see the
-error message if you hit that.
+
+Shifts that cross midnight are fine - if the end time is earlier than the
+start time, it's read as ending the next day (`22:00-06:00` is an 8 hour
+shift). The entry's date stays the date the shift started on. A shift can't
+be a full 24 hours or more, so a start and end time that are identical is
+rejected as an error rather than guessed at.
 
 ## Build
 
