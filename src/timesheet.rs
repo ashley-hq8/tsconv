@@ -19,6 +19,21 @@ pub struct Entry {
     pub end_minutes: u32,
 }
 
+// Strict stops at the first malformed row (good for catching a mistake
+// before it reaches payroll). Lenient skips bad rows and reports them as
+// warnings instead, for logs that are mostly hand-typed and never quite
+// clean.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ParseMode {
+    Strict,
+    Lenient,
+}
+
+pub struct ParseOutcome {
+    pub entries: Vec<Entry>,
+    pub warnings: Vec<String>,
+}
+
 const MINUTES_PER_DAY: u32 = 24 * 60;
 
 impl Entry {
@@ -37,8 +52,9 @@ impl Entry {
 
 const CSV_HEADER: &str = "date,employee,project,start,end";
 
-pub fn parse_csv(contents: &str) -> Result<Vec<Entry>, String> {
+pub fn parse_csv(contents: &str, mode: ParseMode) -> Result<ParseOutcome, String> {
     let mut entries = Vec::new();
+    let mut warnings = Vec::new();
     for (idx, raw_line) in contents.lines().enumerate() {
         let line = raw_line.trim();
         if line.is_empty() {
@@ -48,33 +64,43 @@ pub fn parse_csv(contents: &str) -> Result<Vec<Entry>, String> {
             continue;
         }
         let line_no = idx + 1;
-        let fields: Vec<&str> = line.split(',').map(str::trim).collect();
-        if fields.len() != 5 {
-            return Err(format!(
-                "csv line {}: expected 5 fields (date,employee,project,start,end), found {}",
-                line_no,
-                fields.len()
-            ));
+        match parse_csv_line(line, line_no) {
+            Ok(entry) => entries.push(entry),
+            Err(e) => match mode {
+                ParseMode::Strict => return Err(e),
+                ParseMode::Lenient => warnings.push(format!("{} (skipped)", e)),
+            },
         }
-        let start = parse_time(fields[3])
-            .map_err(|e| format!("csv line {}: start time - {}", line_no, e))?;
-        let end = parse_time(fields[4])
-            .map_err(|e| format!("csv line {}: end time - {}", line_no, e))?;
-        if end == start {
-            return Err(format!(
-                "csv line {}: start and end time are the same",
-                line_no
-            ));
-        }
-        entries.push(Entry {
-            date: fields[0].to_string(),
-            employee: fields[1].to_string(),
-            project: fields[2].to_string(),
-            start_minutes: start,
-            end_minutes: end,
-        });
     }
-    Ok(entries)
+    Ok(ParseOutcome { entries, warnings })
+}
+
+fn parse_csv_line(line: &str, line_no: usize) -> Result<Entry, String> {
+    let fields: Vec<&str> = line.split(',').map(str::trim).collect();
+    if fields.len() != 5 {
+        return Err(format!(
+            "csv line {}: expected 5 fields (date,employee,project,start,end), found {}",
+            line_no,
+            fields.len()
+        ));
+    }
+    let start = parse_time(fields[3])
+        .map_err(|e| format!("csv line {}: start time - {}", line_no, e))?;
+    let end = parse_time(fields[4])
+        .map_err(|e| format!("csv line {}: end time - {}", line_no, e))?;
+    if end == start {
+        return Err(format!(
+            "csv line {}: start and end time are the same",
+            line_no
+        ));
+    }
+    Ok(Entry {
+        date: fields[0].to_string(),
+        employee: fields[1].to_string(),
+        project: fields[2].to_string(),
+        start_minutes: start,
+        end_minutes: end,
+    })
 }
 
 pub fn write_csv(entries: &[Entry]) -> String {
@@ -94,47 +120,58 @@ pub fn write_csv(entries: &[Entry]) -> String {
     out
 }
 
-pub fn parse_punch(contents: &str) -> Result<Vec<Entry>, String> {
+pub fn parse_punch(contents: &str, mode: ParseMode) -> Result<ParseOutcome, String> {
     let mut entries = Vec::new();
+    let mut warnings = Vec::new();
     for (idx, raw_line) in contents.lines().enumerate() {
         let line = raw_line.trim();
         if line.is_empty() {
             continue;
         }
         let line_no = idx + 1;
-        let fields: Vec<&str> = line.split_whitespace().collect();
-        if fields.len() != 4 {
-            return Err(format!(
-                "punch line {}: expected 'date employee project start-end', found {} fields",
-                line_no,
-                fields.len()
-            ));
+        match parse_punch_line(line, line_no) {
+            Ok(entry) => entries.push(entry),
+            Err(e) => match mode {
+                ParseMode::Strict => return Err(e),
+                ParseMode::Lenient => warnings.push(format!("{} (skipped)", e)),
+            },
         }
-        let (start_str, end_str) = fields[3].split_once('-').ok_or_else(|| {
-            format!(
-                "punch line {}: time range '{}' is missing a '-'",
-                line_no, fields[3]
-            )
-        })?;
-        let start = parse_time(start_str)
-            .map_err(|e| format!("punch line {}: start time - {}", line_no, e))?;
-        let end = parse_time(end_str)
-            .map_err(|e| format!("punch line {}: end time - {}", line_no, e))?;
-        if end == start {
-            return Err(format!(
-                "punch line {}: start and end time are the same",
-                line_no
-            ));
-        }
-        entries.push(Entry {
-            date: fields[0].to_string(),
-            employee: fields[1].to_string(),
-            project: fields[2].to_string(),
-            start_minutes: start,
-            end_minutes: end,
-        });
     }
-    Ok(entries)
+    Ok(ParseOutcome { entries, warnings })
+}
+
+fn parse_punch_line(line: &str, line_no: usize) -> Result<Entry, String> {
+    let fields: Vec<&str> = line.split_whitespace().collect();
+    if fields.len() != 4 {
+        return Err(format!(
+            "punch line {}: expected 'date employee project start-end', found {} fields",
+            line_no,
+            fields.len()
+        ));
+    }
+    let (start_str, end_str) = fields[3].split_once('-').ok_or_else(|| {
+        format!(
+            "punch line {}: time range '{}' is missing a '-'",
+            line_no, fields[3]
+        )
+    })?;
+    let start = parse_time(start_str)
+        .map_err(|e| format!("punch line {}: start time - {}", line_no, e))?;
+    let end = parse_time(end_str)
+        .map_err(|e| format!("punch line {}: end time - {}", line_no, e))?;
+    if end == start {
+        return Err(format!(
+            "punch line {}: start and end time are the same",
+            line_no
+        ));
+    }
+    Ok(Entry {
+        date: fields[0].to_string(),
+        employee: fields[1].to_string(),
+        project: fields[2].to_string(),
+        start_minutes: start,
+        end_minutes: end,
+    })
 }
 
 pub fn write_punch(entries: &[Entry]) -> String {

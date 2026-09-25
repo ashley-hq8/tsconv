@@ -61,9 +61,23 @@ Write straight to a file instead of stdout with `--output`:
 $ tsconv convert --from punch --to csv --input week.punch --output week.csv
 ```
 
+By default a malformed row stops the whole conversion (strict mode), on the
+theory that a typo in a timesheet is worth noticing rather than silently
+dropping. Pass `--lenient` to skip bad rows instead and get a warning on
+stderr for each one:
+
+```
+$ tsconv convert --from csv --to punch --input week.csv --lenient
+warning: csv line 4: expected 5 fields (date,employee,project,start,end), found 4 (skipped)
+2026-09-15 ashley website-redesign 09:00-17:30
+2026-09-16 ashley website-redesign 09:00-16:00
+```
+
 ## Report
 
-Totals per employee and per project, either as a human-readable summary:
+Totals per employee and per project, either as a human-readable summary.
+`--lenient` works here too, if the log has a few bad rows you'd rather skip
+than fix before you can see the totals.
 
 ```
 $ tsconv report --input week.csv --format csv
